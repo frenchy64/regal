@@ -183,7 +183,7 @@
              (char? c)
              (gen/return c))))))
 
-(defmethod -generator :not [r opts]
+(defn -not-code-points [r opts]
   (let [never-chars (reduce (fn [acc c]
                               (cond
                                 (vector? c) (into acc (let [[min max] (map platform/char->long c)]
@@ -193,10 +193,13 @@
                                 (char? c) (conj acc (platform/char->long c))
                                 :else (throw (ex-info (str "Unknown :not class" r ".")
                                                       {::unknown r}))))
-                            #{} (next r))
-        char-range (into (sorted-set) (remove never-chars)
-                         (range 256))]
-    (gen/one-of (mapv regal/-code-point->string char-range))))
+                            #{} (next r))]
+    (remove never-chars (range (::min-code-point opts 0)
+                               (inc (::max-code-point opts 256))))))
+
+(defmethod -generator :not [r opts]
+  (gen/one-of (mapv regal/-code-point->string
+                    (-not-code-points r opts))))
 
 (defmethod -generator :repeat [[_ r min max] opts]
   (if max
