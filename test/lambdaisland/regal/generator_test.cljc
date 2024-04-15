@@ -17,4 +17,5 @@
   (is (= [[27] [135] [256] [178] [101] [92] [111] [78] [91] [129]]
          (sample-code-points [:not "a"] {:seed 0})))
   (is (= [[27] [134] [256] [178] [100] [92] [110] [78] [91] [129]]
-         (sample-code-points [:not "𓅡"] {:seed 0}))))
+         (sample-code-points [:not "𓅡"] {:seed 0})))
+  (is (= "𓅡" (rg/generate "𓅡" {:seed 0}))))

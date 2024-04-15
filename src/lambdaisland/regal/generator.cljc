@@ -304,10 +304,14 @@
 (defn generate
   ([r]
    (gen/generate (gen r)))
-  ([r size]
-   (gen/generate (gen r) size))
+  ([r size-or-opts]
+   (if (number? size-or-opts)
+     (gen/generate (gen r) size-or-opts)
+     (let [{:keys [seed size]} size-or-opts
+           size (or size 10)]
+       (gen/generate (gen r) size seed))))
   ([r size seed]
-   (gen/generate (gen r) size seed)))
+   (generate r {:size size :seed seed})))
 
 (comment
   (sample [:cat :digit :whitespace :word])
