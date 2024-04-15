@@ -1,5 +1,6 @@
 (ns lambdaisland.regal.generator
   (:require [clojure.test.check.generators :as gen]
+            [clojure.math.combinatorics :as comb]
             [lambdaisland.regal :as regal]
             [lambdaisland.regal.negate :as negate]
             [lambdaisland.regal.platform :as platform]
@@ -47,7 +48,7 @@
               (apply gen/tuple (repeat i (generator (into [:cat] rs) opts))))))
 
 (defmethod -generator :*? [[_ & rs] opts]
-  (-generator (cons :* rs) opts))
+  (-generator (into [:*] rs) opts))
 
 (defmethod -generator :+ [[_ & rs] opts]
   (gen/bind gen/s-pos-int
@@ -55,14 +56,14 @@
               (apply gen/tuple (repeat i (generator (into [:cat] rs) opts))))))
 
 (defmethod -generator :+? [[_ & rs] opts]
-  (-generator (cons :+ rs) opts))
+  (-generator (into [:+] rs) opts))
 
 (defmethod -generator :? [[_ & rs] opts]
   (gen/one-of [(gen/return "")
                (generator (into [:cat] rs) opts)]))
 
 (defmethod -generator :?? [[_ & rs] opts]
-  (-generator (cons :? rs) opts))
+  (-generator (into [:?] rs) opts))
 
 (defn parse-hex
   "
@@ -72,130 +73,137 @@
   [h]
   (platform/hex->int (subs h 2)))
 
-(def any-gen
-  (gen/such-that (complement #{\return \newline \u0085 "\r" "\n" "\u0085"}) gen/char))
+(def line-break-strs
+  ["\r\n" "\n" "\u000B" "\f" "\r" "\u0085" "\u2028" "\u2029"])
 
-(def whitespace-gen
-  (gen/fmap char (gen/one-of (map gen/return regal/whitespace-char-codes))))
-
-(def non-whitespace-gen
-  (gen/fmap
-   char
-   (gen/one-of
-    (map
-     (fn [[from to]]
-       (gen/choose from
-                   to))
-     regal/non-whitespace-ranges-codes))))
-
-(def line-break-gen
-  (gen/one-of (map gen/return ["\r\n" "\n" "\u000B" "\f" "\r" "\u0085" "\u2028" "\u2029"])))
-
-(def double-line-break-gen
+(def double-line-break-strs
   "[:cat :line-break :line-break] should not generate \\r\\n, because of how \\R
   works."
-  (gen/such-that
-   (complement #{"\r\n"})
-   (gen/fmap #(apply str %)
-             (gen/tuple line-break-gen line-break-gen))))
+  (into [] (comp (map str)
+                 (remove #{"\r\n"}))
+        (comb/selections line-break-strs 2)))
 
-(defn token-gen [r opts]
+(defn- token->regal [r opts]
   (case r
     :any
-    any-gen ;; . does not match newlines
+    [:not \return \newline \u0085]
 
     :digit
-    (-generator [:class [\0 \9]] opts)
+    [:class [\0 \9]]
 
     :non-digit
-    (-generator [:not [\0 \9]] opts)
+    [:not [\0 \9]]
 
     :word
-    (-generator [:class [\a \z] [\A \Z] [\0 \9] \_] opts)
+    [:class [\a \z] [\A \Z] [\0 \9] \_]
 
     :non-word
-    (-generator [:not [\a \z] [\A \Z] [\0 \9] \_] opts)
+    [:not [\a \z] [\A \Z] [\0 \9] \_]
 
     :whitespace
-    whitespace-gen
+    (into [:class] (map char) regal/whitespace-char-codes)
 
     :non-whitespace
-    non-whitespace-gen
+    (into [:not]
+          (map #(mapv char %))
+          regal/non-whitespace-ranges-codes)
 
     :start
     (if (::initial? opts)
-      (gen/return "")
+      ""
       (throw (ex-info "Can't create generator, :start used in non-initial position."
                       {:type ::impossible-regex})))
 
     :end
     (if (::final? opts)
-      (gen/return "")
+      ""
       (throw (ex-info "Can't create generator, :end used in non-final position."
                       {:type ::impossible-regex})))
 
     :newline
-    (gen/return "\n")
+    "\n"
 
     :return
-    (gen/return "\r")
+    "\r"
 
     :tab
-    (gen/return "\t")
+    "\t"
 
     :form-feed
-    (gen/return "\f")
+    "\f"
 
     :line-break
-    line-break-gen
+    (into [:alt] line-break-strs)
 
     :-double-line-break ;; internal, do not use
-    double-line-break-gen
+    (into [:alt] double-line-break-strs)
 
     :alert
-    (gen/return "\u0007")
+    "\u0007"
 
     :escape
-    (gen/return "\u001B")
+    "\u001B"
 
     :vertical-whitespace
-    (gen/one-of (map gen/return ["\n" "\u000B" "\f" "\r" "\u0085" "\u2028" "\u2029"]))
+    [:alt "\n" "\u000B" "\f" "\r" "\u0085" "\u2028" "\u2029"]
 
     :vertical-tab
-    (gen/return "\u000B")
+    "\u000B"
 
     :null
-    (gen/return "\u0000")
+    "\u0000"
 
     (throw (ex-info (str "Unrecognized regal token: " r) {::unrecognized-token r}))))
 
+(defn token-gen [r opts]
+  (-> r
+      (token->regal opts)
+      (generator opts)))
+
 (defmethod -generator :class [[_ & cs] opts]
-  (gen/one-of (for [c cs]
-                (cond
-                  (vector? c)
-                  (gen/fmap char (gen/choose (platform/char->long (first c)) (platform/char->long (second c))))
+  (gen/one-of
+    (vec (for [c cs]
+           (cond
+             (vector? c)
+             (gen/fmap char (gen/choose (platform/char->long (first c)) (platform/char->long (second c))))
 
-                  (simple-keyword? c)
-                  (token-gen c opts)
+             (simple-keyword? c)
+             (token-gen c opts)
 
-                  ;; Not sure if this should be allowed, can custom tokens be
-                  ;; used inside a class?
-                  ;;
-                  ;; (qualified-keyword? c)
-                  ;; (generator c opts)
+             ;; Not sure if this should be allowed, can custom tokens be
+             ;; used inside a class?
+             ;;
+             ;; (qualified-keyword? c)
+             ;; (generator c opts)
 
-                  (string? c)
-                  (gen/one-of (map gen/return c))
+             (string? c)
+             (gen/one-of (map gen/return c))
 
-                  (char? c)
-                  (gen/return c)))))
+             (char? c)
+             (gen/return c))))))
 
 (defmethod -generator :not [r opts]
-  (or (some-> (negate/negate r opts)
-              (-generator opts))
-      (let [pattern (regal/regex r opts)]
-        (gen/such-that #(re-find pattern (str %)) gen/char
-                       {:ex-fn #(ex-info (str "Failed to generate " (pr-str r)) %)}))))
+  (let [gs (reduce (fn [acc c]
+                     (cond
+                       (vector? c)
+                       [(platform/char->long (first c)) (platform/char->long (second c))]
+
+                       (simple-keyword? c)
+                       (token-gen c opts)
+
+                       ;; Not sure if this should be allowed, can custom tokens be
+                       ;; used inside a class?
+                       ;;
+                       ;; (qualified-keyword? c)
+                       ;; (generator c opts)
+
+                       (string? c)
+                       (gen/one-of (map gen/return c))
+
+                       (char? c)
+                       (gen/return c))
+                     )
+                   [] (next r))]))
 
 (defmethod -generator :repeat [[_ r min max] opts]
   (if max
@@ -205,7 +213,7 @@
     (apply gen/tuple (repeat min (generator r opts)))))
 
 (defmethod -generator :lazy-repeat [[_ & rs] opts]
-  (-generator (cons :repeat rs) opts))
+  (-generator (into [:repeat] rs) opts))
 
 (defmethod -generator :capture [[_ & rs] opts]
   (generator (into [:cat] rs) opts))

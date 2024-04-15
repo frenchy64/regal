@@ -169,3 +169,14 @@
       (testing (str "generated strings match the given pattern " (pr-str form))
         (doseq [s (regal-gen/sample form)]
           (is (re-find (regal/regex form) s)))))))
+
+(deftest normalize-test
+  (is (= [:alt
+          [:cat [:char 11] [:not [:char 13]]]
+          [:cat [:not [:char 11]] [:char 13]]
+          [:cat [:not [:char 11]] [:not [:char 13]]]]
+         (regal/normalize
+           [:alt
+            [:cat [:char 11] [:not [:char 13]]]
+            [:cat [:not [:char 11]] [:char 13]]
+            [:cat [:not [:char 11]] [:not [:char 13]]]]))))

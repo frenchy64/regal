@@ -573,9 +573,25 @@
               (conj v e)))
           [] v))
 
+(defn- flatten-alts [form]
+  (if (tagged-form? :alt form)
+    (into [:alt] (mapcat (fn [form]
+                           (if (tagged-form? :alt form)
+                             (next form)
+                             [form])))
+          (next form))
+    form))
+
+(defn- double-negations [form]
+  ;; maybe also :negative-lookahead ?
+  (if (and (tagged-form? :not form)
+           (tagged-form? :not (second form)))
+    (-> form second second)
+    form))
+
+(def ^:private splice-cats-under #{:cat :capture :negative-lookahead :lookbehind :negative-lookbehind})
 (defn- splice-cats [[tag & forms :as form]]
-  (if (and (not= :repeat tag)
-           (not= :lazy-repeat tag)
+  (if (and (splice-cats-under tag)
            (some (partial tagged-form? :cat) forms))
     (reduce (fn [acc f]
               (if (tagged-form? :cat f)
@@ -584,6 +600,8 @@
             [tag]
             forms)
     form))
+
+(declare normalize)
 
 (defn normalize
   "Returns a canonical, normalized version of a Regal form. Normalization is
@@ -598,6 +616,8 @@
   - Turns characters into strings (Java)
   - removes unnecessary `[:cat ...]` groupings
   - removes single element `[:alt ...]` grouping
+  - removes duplicate `[:alt ...]` groupings
+  - removes double negations
   - join consecutive strings
   - remove `[:class ...]` groups that only wrap a single character or token (keyword)
   - replace `:null` with `[:char 0]`
@@ -625,10 +645,19 @@
                (single-character? (second form))))
       (recur (second form))
 
+      ;; [:alt "x" "x"] => [:alt "x"]
+      #_#_
+      (and (tagged-form? :alt form)
+           (< 2 (count form))
+           (not (apply distinct? (rest form))))
+      (recur (into [:alt] (distinct) (rest form)))
+
       (keyword? (first form))
-      (let [form' (-> normalize (mapv form) join-strings splice-cats)]
+      (let [form' (-> normalize (mapv form) join-strings splice-cats #_flatten-alts #_double-negations)]
         (if (not= form' form)
-          (recur form')
+          (do (prn "form" form)
+              (prn "form'" form')
+              (recur form'))
           form))
 
       :else

@@ -14,6 +14,6 @@
           [:cat [:not [:char 11]] [:char 13]]
           [:cat [:not [:char 11]] [:not [:char 13]]]]
         (negate [:cat [:char 11] [:char 13]])))
-  (is (= [:alt] (negate :any)))
-  (is (= :any (negate [:alt])))
+  (is (= [:alt :newline :return] (negate :any)))
+  (is (= [:alt :any :newline :return] (negate [:alt])))
   )

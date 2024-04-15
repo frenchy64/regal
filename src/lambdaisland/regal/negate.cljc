@@ -6,18 +6,20 @@
 
 (declare negate)
 
-(defmulti -negate (fn [[op] opts] op)
+(defmulti -negate (fn [r opts] (if (keyword? r) r (first r)))
   :default ::default)
 
 (defmethod -negate ::default [_ _])
 (defmethod -negate :char [r opts] [:not r])
 (defmethod -negate :ctrl [r opts] [:not r])
 (defmethod -negate :not [r opts] (second r))
-(defmethod -negate :any [r opts] [:alt])
+(defmethod -negate :any [r opts] [:alt :newline :return])
+(defmethod -negate :newline [r opts] [:not :newline])
+(defmethod -negate :return [r opts] [:not :return])
 
 (defmethod -negate :alt [r opts]
   (if (= 1 (count r))
-    :any
+    [:alt :any :newline :return]
     ;;TODO ??
     [:negative-lookahead r]))
 ;;TODO ??
@@ -44,20 +46,17 @@
 (defn negate
   ([r] (negate r {}))
   ([r {:keys [resolver] :as opts}] 
-   (cond
-     (string? r) [:not r]
-     (char? r) [:not r]
-     (simple-keyword? r) [:not r]
+   (regal/normalize
+     (cond
+       (qualified-keyword? r)
+       (-negate
+         (if resolver
+           (if-let [resolved (resolver r)]
+             (-negate resolved opts)
+             (throw (ex-info (str "Unable to resolve Regal Expression " r ".")
+                             {::unresolved r})))
+           (throw (ex-info (str "Regal expression contains qualified keyword, but no resolver was specified.")
+                           {::no-resolver-for r})))
+         opts)
 
-     (qualified-keyword? r)
-     (-negate
-       (if resolver
-         (if-let [resolved (resolver r)]
-           (-negate resolved opts)
-           (throw (ex-info (str "Unable to resolve Regal Expression " r ".")
-                           {::unresolved r})))
-         (throw (ex-info (str "Regal expression contains qualified keyword, but no resolver was specified.")
-                         {::no-resolver-for r})))
-       opts)
-
-     :else (-negate r opts))))
+       :else (-negate r opts)))))
