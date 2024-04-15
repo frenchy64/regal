@@ -1,6 +1,7 @@
 (ns lambdaisland.regal.generator
   (:require [clojure.test.check.generators :as gen]
             [lambdaisland.regal :as regal]
+            [lambdaisland.regal.negate :as negate]
             [lambdaisland.regal.platform :as platform]
             [clojure.string :as str]))
 
@@ -190,9 +191,11 @@
                   (gen/return c)))))
 
 (defmethod -generator :not [r opts]
-  ;; TODO: this is a bit hacky
-  (let [pattern (regal/regex r opts)]
-    (gen/such-that #(re-find pattern (str %)) gen/char)))
+  (or (some-> (negate/negate r opts)
+              (-generator opts))
+      (let [pattern (regal/regex r opts)]
+        (gen/such-that #(re-find pattern (str %)) gen/char
+                       {:ex-fn #(ex-info (str "Failed to generate " (pr-str r)) %)}))))
 
 (defmethod -generator :repeat [[_ r min max] opts]
   (if max
