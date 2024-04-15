@@ -421,7 +421,7 @@
   #?(:clj (Character/toCodePoint (char high) (char low))
      :cljs (throw ::nyi)))
 
-(defn- code-point->string [code-point]
+(defn -code-point->string [code-point]
   #?(;;https://www.oracle.com/technical-resources/articles/javase/supplementary.html
      :clj (if (= 1 (Character/charCount (int code-point)))
             (String/valueOf (char code-point))
