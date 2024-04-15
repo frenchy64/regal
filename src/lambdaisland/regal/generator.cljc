@@ -30,6 +30,7 @@
 
 (defn map-generator [rs opts]
   (map-indexed (fn [idx r]
+                 {:post [(some? %)]}
                  (generator r (-> opts
                                   (update ::initial? #(and % (= 0 idx)))
                                   (update ::final? #(and % (= (count rs)
@@ -183,27 +184,18 @@
              (gen/return c))))))
 
 (defmethod -generator :not [r opts]
-  (let [gs (reduce (fn [acc c]
-                     (cond
-                       (vector? c)
-                       [(platform/char->long (first c)) (platform/char->long (second c))]
-
-                       (simple-keyword? c)
-                       (token-gen c opts)
-
-                       ;; Not sure if this should be allowed, can custom tokens be
-                       ;; used inside a class?
-                       ;;
-                       ;; (qualified-keyword? c)
-                       ;; (generator c opts)
-
-                       (string? c)
-                       (gen/one-of (map gen/return c))
-
-                       (char? c)
-                       (gen/return c))
-                     )
-                   [] (next r))]))
+  (let [never-chars (reduce (fn [acc c]
+                              (cond
+                                (vector? c) (into acc (let [[min max] (map platform/char->long c)]
+                                                        (range min (inc max))))
+                                (string? c) (into acc (map platform/char->long) c)
+                                (char? c) (conj acc (platform/char->long c))
+                                :else (throw (ex-info (str "Unknown :not class" r ".")
+                                                      {::unknown r}))))
+                            #{} (next r))
+        char-range (into (sorted-set) (remove never-chars)
+                         (range 256))]
+    (gen/one-of (vec char-range))))
 
 (defmethod -generator :repeat [[_ r min max] opts]
   (if max
@@ -227,6 +219,7 @@
 
 
 (defn- generator [r {:keys [resolver] :as opts}]
+  (prn r)
   (cond
     (string? r)
     (gen/return r)
