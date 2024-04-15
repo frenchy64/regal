@@ -2,6 +2,7 @@
   (:require [clojure.test.check.generators :as gen]
             [clojure.math.combinatorics :as comb]
             [lambdaisland.regal :as regal]
+            [lambdaisland.regal.code-points :as cp]
             [lambdaisland.regal.negate :as negate]
             [lambdaisland.regal.platform :as platform]
             [clojure.string :as str]))
@@ -178,7 +179,7 @@
              ;; (generator c opts)
 
              (string? c)
-             (gen/one-of (map gen/return (regal/-code-point-seq c)))
+             (gen/one-of (map gen/return (cp/code-point-seq c)))
 
              (char? c)
              (gen/return c))))))
@@ -189,7 +190,7 @@
                                 (vector? c) (into acc (let [[min max] (map platform/char->long c)]
                                                         (range min (inc max))))
                                 (string? c) (into acc (map platform/char->long)
-                                                  (regal/-code-point-seq c))
+                                                  (cp/code-point-seq c))
                                 (char? c) (conj acc (platform/char->long c))
                                 :else (throw (ex-info (str "Unknown :not class" r ".")
                                                       {::unknown r}))))
@@ -198,7 +199,7 @@
                                (inc (::max-code-point opts 256))))))
 
 (defmethod -generator :not [r opts]
-  (gen/one-of (mapv regal/-code-point->string
+  (gen/one-of (mapv cp/code-point->string
                     (-not-code-points r opts))))
 
 (defmethod -generator :repeat [[_ r min max] opts]

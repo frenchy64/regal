@@ -1,5 +1,6 @@
 (ns lambdaisland.regal.platform
-  (:require [clojure.string :as str])) ;; clj
+  (:require [clojure.string :as str]
+            [lambdaisland.regal.code-points :as cp])) ;; clj
 
 (defn hex->int [hex]
   (Long/parseLong hex 16))
@@ -10,7 +11,9 @@
 
 (defn char->long [ch]
   (if (string? ch)
-    (long (first ch))
+    (case (count ch)
+      1 (long (first ch))
+      2 (first (cp/code-point-seq ch)))
     (long ch)))
 
 (defn parse-int [i]

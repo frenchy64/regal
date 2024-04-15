@@ -12,6 +12,7 @@
      #\"\\A[a-zA-Z0-9_-]\\Q@\\E[0-9]{3,5}[^.]*(?:\\Qcom\\E|\\Qorg\\E|\\Qnet\\E)\\z\" "
   (:refer-clojure :exclude [compile])
   (:require [clojure.string :as str]
+            [lambdaisland.regal.code-points :as cp]
             [lambdaisland.regal.platform :as platform])
   #?(:clj (:import java.util.regex.Pattern clojure.lang.IMeta)
      :cljs (:require-macros [lambdaisland.regal :refer [with-flavor]])))
@@ -348,7 +349,7 @@
       (or (= s "\\\\")
           (re-find #"\\0[0-7]" s)
           (re-find #"\\[trnfaedDsSvwW]" s)
-          (= 1 (count (-code-point-seq s))))
+          (= 1 (count (cp/code-point-seq s))))
 
       3
       (or (re-find #"\\0[0-7]{2}" s)
@@ -412,45 +413,6 @@
 (defmethod -regal->ir [:lazy-repeat :common] [[_ r & ns] opts]
   (quantifier->ir `^::grouped (\{ ~@(interpose \, (map str ns)) \} \?) [r] opts))
 
-;; https://lambdaisland.com/blog/12-06-2017-clojure-gotchas-surrogate-pairs
-(defn- char-code-at [str pos]
-  #?(:clj (int (.charAt ^String str pos))
-     :cljs (.charCodeAt str pos)))
-
-(defn- to-code-point [high low]
-  #?(:clj (Character/toCodePoint (char high) (char low))
-     :cljs (throw ::nyi)))
-
-(defn -code-point->string [code-point]
-  #?(;;https://www.oracle.com/technical-resources/articles/javase/supplementary.html
-     :clj (if (= 1 (Character/charCount (int code-point)))
-            (String/valueOf (char code-point))
-            (String. (Character/toChars code-point)))
-     :cljs (throw ::nyi)))
-
-(defn -code-point-offset-seq
-  "Returns a lazy seq of {:code-point-offset nat, :code-point int, :char-offset nat, (optional :surrogate-pair) [high low]}"
-  ([str]
-   (-code-point-offset-seq str 0 0))
-  ([str code-point-offset char-offset]
-   (lazy-seq
-     (when (< char-offset (count str))
-       (let [start-offset char-offset
-             high (char-code-at str char-offset)
-             char-offset (inc char-offset)
-             low (when (and (<= 0xD800 (int high) 0xDBFF)
-                            (< char-offset (count str)))
-                   (char-code-at str char-offset))
-             code (cond-> high low (to-code-point low))
-             char-offset (cond-> char-offset low inc)]
-         (cons (cond-> {:code-point (int code)
-                        :char-offset start-offset
-                        :code-point-offset code-point-offset}
-                 low (assoc :surrogate-pair [high low]))
-               (-code-point-offset-seq str (inc code-point-offset) char-offset)))))))
-
-(defn -code-point-seq [str]
-  (map :code-point (-code-point-offset-seq str)))
 
 (defn char-class-escape [ch]
   (if (and (string? ch)
@@ -482,7 +444,7 @@
               (string? c)
               (into r (map (comp char-class-escape
                                  code-point->string))
-                    (-code-point-seq c))
+                    (cp/code-point-seq c))
 
               (char? c)
               (conj r (char-class-escape c))
@@ -614,7 +576,7 @@
 
 (defn- join-strings [v]
   (reduce (fn [v e]
-            (if (and (string? (last v)) (string? e))
+            (if (and (string? (peek v)) (string? e))
               (update v (dec (count v)) str e)
               (conj v e)))
           [] v))
