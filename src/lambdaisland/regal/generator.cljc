@@ -178,7 +178,7 @@
              ;; (generator c opts)
 
              (string? c)
-             (gen/one-of (map gen/return c))
+             (gen/one-of (map gen/return (regal/-code-point-seq c)))
 
              (char? c)
              (gen/return c))))))
