@@ -181,7 +181,8 @@
              ;; (generator c opts)
 
              (string? c)
-             (gen/one-of (mapv gen/return (cp/code-point-seq c)))
+             (gen/one-of (mapv (comp gen/return cp/code-point->string)
+                               (cp/code-point-seq c)))
 
              (char? c)
              (gen/return c))))))

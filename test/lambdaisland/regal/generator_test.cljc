@@ -18,4 +18,6 @@
          (sample-code-points [:not "a"] {:seed 0})))
   (is (= [[27] [134] [256] [178] [100] [92] [110] [78] [91] [129]]
          (sample-code-points [:not "𓅡"] {:seed 0})))
-  (is (= "𓅡" (rg/generate "𓅡" {:seed 0}))))
+  (is (= "𓅡" (rg/generate "𓅡" {:seed 0})))
+  (is (= ["" "a" "bb" "cc" "c" "bc" "bca" "c𓅡" "𓅡ac" "b𓅡b𓅡a"]
+         (vec (rg/sample [:* [:class "a𓅡bc"]] {:seed 0})))))
