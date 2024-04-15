@@ -1,5 +1,7 @@
 (ns lambdaisland.regal.generator
   (:require [clojure.test.check.generators :as gen]
+            [clojure.test.check.random :as random]
+            [clojure.test.check.rose-tree :as rose]
             [clojure.math.combinatorics :as comb]
             [lambdaisland.regal :as regal]
             [lambdaisland.regal.code-points :as cp]
@@ -179,12 +181,13 @@
              ;; (generator c opts)
 
              (string? c)
-             (gen/one-of (map gen/return (cp/code-point-seq c)))
+             (gen/one-of (mapv gen/return (cp/code-point-seq c)))
 
              (char? c)
              (gen/return c))))))
 
 (defn -not-code-points [r opts]
+  {:post [(do (prn %) true)]}
   (let [never-chars (reduce (fn [acc c]
                               (cond
                                 (vector? c) (into acc (let [[min max] (map platform/char->long c)]
@@ -199,7 +202,7 @@
                                (inc (::max-code-point opts 256))))))
 
 (defmethod -generator :not [r opts]
-  (gen/one-of (mapv cp/code-point->string
+  (gen/one-of (mapv (comp gen/return cp/code-point->string)
                     (-not-code-points r opts))))
 
 (defmethod -generator :repeat [[_ r min max] opts]
@@ -283,11 +286,20 @@
                                               ::initial? true
                                               ::final? true)))))
 
+(defn- -random [seed] (if seed (random/make-random seed) (random/make-random)))
+
 (defn sample
   ([r]
-   (gen/sample (gen r)))
-  ([r num-samples]
-   (gen/sample (gen r) num-samples)))
+   (sample (gen r) {}))
+  ([r num-samples-or-opts]
+   (if (number? num-samples-or-opts)
+     (gen/sample gen num-samples-or-opts)
+     (let [{:keys [seed size] :or {size 10}} num-samples-or-opts
+           gen (gen r num-samples-or-opts)]
+       (->> (gen/make-size-range-seq size)
+            (map #(rose/root (gen/call-gen gen %1 %2))
+                 (gen/lazy-random-states (-random seed)))
+            (take size))))))
 
 (defn generate
   ([r]
