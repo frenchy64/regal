@@ -14,6 +14,9 @@
   (is (= "abc"
          (regal/pattern [:cat "a" "b" "c"])))
 
+  (is (= "a𓅡c"
+         (regal/pattern [:cat \a "𓅡" \c])))
+
   (is (= "a|b|c"
          (regal/pattern [:alt "a" "b" "c"])))
 
@@ -94,7 +97,8 @@
     "^" "\\^"
     "{" "\\{"
     "|" "\\|"
-    "}" "\\}"))
+    "}" "\\}"
+    "𓅡" "𓅡"))
 
 
 (def flavors [:java8 :java9 :ecma :re2])
@@ -169,3 +173,20 @@
       (testing (str "generated strings match the given pattern " (pr-str form))
         (doseq [s (regal-gen/sample form)]
           (is (re-find (regal/regex form) s)))))))
+
+(deftest normalize-test
+  (is (= [:alt
+          [:cat [:char 11] [:not [:char 13]]]
+          [:cat [:not [:char 11]] [:char 13]]
+          [:cat [:not [:char 11]] [:not [:char 13]]]]
+         (regal/normalize
+           [:alt
+            [:cat [:char 11] [:not [:char 13]]]
+            [:cat [:not [:char 11]] [:char 13]]
+            [:cat [:not [:char 11]] [:not [:char 13]]]]))))
+
+(deftest unicode-test
+  (is (re-matches (regal/regex [:cat "𓅡"]) "𓅡"))
+  (is (not (re-matches (regal/regex [:cat "𓅡"]) "")))
+  (is (re-matches (regal/regex [:* "𓅡"]) "𓅡𓅡𓅡"))
+  (is (not (re-matches (regal/regex [:* "𓅡"]) "a𓅡"))))

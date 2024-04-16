@@ -12,6 +12,7 @@
      #\"\\A[a-zA-Z0-9_-]\\Q@\\E[0-9]{3,5}[^.]*(?:\\Qcom\\E|\\Qorg\\E|\\Qnet\\E)\\z\" "
   (:refer-clojure :exclude [compile])
   (:require [clojure.string :as str]
+            [lambdaisland.regal.code-points :as cp]
             [lambdaisland.regal.platform :as platform])
   #?(:clj (:import java.util.regex.Pattern clojure.lang.IMeta)
      :cljs (:require-macros [lambdaisland.regal :refer [with-flavor]])))
@@ -347,7 +348,8 @@
       2
       (or (= s "\\\\")
           (re-find #"\\0[0-7]" s)
-          (re-find #"\\[trnfaedDsSvwW]" s))
+          (re-find #"\\[trnfaedDsSvwW]" s)
+          (= 1 (count (cp/code-point-seq s))))
 
       3
       (or (re-find #"\\0[0-7]{2}" s)
@@ -411,32 +413,38 @@
 (defmethod -regal->ir [:lazy-repeat :common] [[_ r & ns] opts]
   (quantifier->ir `^::grouped (\{ ~@(interpose \, (map str ns)) \} \?) [r] opts))
 
+
 (defn char-class-escape [ch]
-  (let [ch #?(:clj (if (string? ch) (first ch) ch)
-              :cljs ch)]
-    (case ch
-      \^
-      "\\^"
-      \]
-      "\\]"
-      ;; unescaped opening brackets are in fact allowed inside character classes.
-      ;; In JavaScript this allows nesting, in Java it matches a literal opening
-      ;; bracket. Escaped it works the same on both.
-      \[
-      "\\["
-      \\
-      "\\\\"
-      \-
-      "\\-"
-      \&
-      "\\&"
-      ch)))
+  (if (and (string? ch)
+           (= 2 (count ch)))
+    ch ;; surrogate pair
+    (let [ch #?(:clj (if (string? ch) (first ch) ch)
+                :cljs ch)]
+      (case ch
+        \^
+        "\\^"
+        \]
+        "\\]"
+        ;; unescaped opening brackets are in fact allowed inside character classes.
+        ;; In JavaScript this allows nesting, in Java it matches a literal opening
+        ;; bracket. Escaped it works the same on both.
+        \[
+        "\\["
+        \\
+        "\\\\"
+        \-
+        "\\-"
+        \&
+        "\\&"
+        ch))))
 
 (defn- compile-class [cs]
   (reduce (fn [r c]
             (cond
               (string? c)
-              (into r (map char-class-escape) c)
+              (into r (map (comp char-class-escape
+                                 code-point->string))
+                    (cp/code-point-seq c))
 
               (char? c)
               (conj r (char-class-escape c))
@@ -568,14 +576,30 @@
 
 (defn- join-strings [v]
   (reduce (fn [v e]
-            (if (and (string? (last v)) (string? e))
+            (if (and (string? (peek v)) (string? e))
               (update v (dec (count v)) str e)
               (conj v e)))
           [] v))
 
+(defn- flatten-alts [form]
+  (if (tagged-form? :alt form)
+    (into [:alt] (mapcat (fn [form]
+                           (if (tagged-form? :alt form)
+                             (next form)
+                             [form])))
+          (next form))
+    form))
+
+(defn- double-negations [form]
+  ;; maybe also :negative-lookahead ?
+  (if (and (tagged-form? :not form)
+           (tagged-form? :not (second form)))
+    (-> form second second)
+    form))
+
+(def ^:private splice-cats-under #{:cat :capture :negative-lookahead :lookbehind :negative-lookbehind})
 (defn- splice-cats [[tag & forms :as form]]
-  (if (and (not= :repeat tag)
-           (not= :lazy-repeat tag)
+  (if (and (splice-cats-under tag)
            (some (partial tagged-form? :cat) forms))
     (reduce (fn [acc f]
               (if (tagged-form? :cat f)
@@ -584,6 +608,8 @@
             [tag]
             forms)
     form))
+
+(declare normalize)
 
 (defn normalize
   "Returns a canonical, normalized version of a Regal form. Normalization is
@@ -598,6 +624,8 @@
   - Turns characters into strings (Java)
   - removes unnecessary `[:cat ...]` groupings
   - removes single element `[:alt ...]` grouping
+  - removes duplicate `[:alt ...]` groupings
+  - removes double negations
   - join consecutive strings
   - remove `[:class ...]` groups that only wrap a single character or token (keyword)
   - replace `:null` with `[:char 0]`
@@ -625,10 +653,19 @@
                (single-character? (second form))))
       (recur (second form))
 
+      ;; [:alt "x" "x"] => [:alt "x"]
+      #_#_
+      (and (tagged-form? :alt form)
+           (< 2 (count form))
+           (not (apply distinct? (rest form))))
+      (recur (into [:alt] (distinct) (rest form)))
+
       (keyword? (first form))
-      (let [form' (-> normalize (mapv form) join-strings splice-cats)]
+      (let [form' (-> normalize (mapv form) join-strings splice-cats #_flatten-alts #_double-negations)]
         (if (not= form' form)
-          (recur form')
+          (do (prn "form" form)
+              (prn "form'" form')
+              (recur form'))
           form))
 
       :else
@@ -661,7 +698,7 @@
   #?(:clj
      (Pattern/compile s)
      :cljs
-     (js/RegExp. s)))
+     (js/RegExp. s "u")))
 
 (defn pattern
   "Convert a Regal form to a regex pattern as a string."
